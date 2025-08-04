@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: go get .
       - name: Build
-        run: ./build.sh
+        run: go build
       - name: Test
         run: go test .
 
