@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 )
 
 const max48 = (1 << 48) - 1
@@ -152,9 +151,4 @@ func Example_edgeMax() {
 	uu16, uu48 := unpackUint16Uint48(p)
 	fmt.Printf("%#x %#x\n", uu16, uu48)
 	// Output: 0xffff 0xffffffffffff
-}
-
-func init() {
-	// Stabilize any randomized tests that might rely on time elsewhere.
-	rand.Seed(time.Now().UnixNano())
 }
