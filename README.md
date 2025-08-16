@@ -48,13 +48,14 @@ import "github.com/iryndin/limitron"
 ### 4.2. Example: Per-Second Rate Limit
 
 ```go
-limiter := limitron.CreateLeanRateLimiterRps(10) // 10 requests per second
-state := limiter.CreateNewRl()
+limiter := limitron.BuildRateLimiterRps(10) // 10 requests per second
+state := limiter.New()
 
-if limiter.Take1IfAllowed(&state) {
+if waitMillis, taken := limiter.Take1(state); taken {
     // Allowed – process request
 } else {
     // Denied – rate limit exceeded
+    time.Sleep(time.Duration(waitMillis) * time.Millisecond)
 }
 ```
 
@@ -62,11 +63,11 @@ if limiter.Take1IfAllowed(&state) {
 ### 4.3. Example: Custom Interval Rate Limit
 
 ```go
-limiter := limitron.CreateLeanRateLimiter(100, time.Minute) // 100 reqs per minute
-state := limiter.CreateNewRl()
+limiter := limitron.BuildRateLimiter(100, time.Minute) // 100 reqs per minute
+state := limiter.New()
 
-allowed := limiter.TakeNIfAllowed(&state, 5) // Try to take 5 tokens
-if allowed {
+_, taken := limiter.TakeN(state, 5) // Try to take 5 requests at once
+if taken {
     // Allowed
 } else {
     // Rate limit hit
@@ -76,44 +77,51 @@ if allowed {
 ### 4.4. Example: Free and Paid plan rate limiting
 
 ```go
-import (
-  "math/rand"
-  "net/http"
+package limitronexample
 
-  "github.com/iryndin/limitron"
+import (
+    "github.com/iryndin/limitron"
+    "net/http"
+    "strconv"
+    "time"
 )
 
-const FreePlanAPIRateLimit = 1
-const PaidPlanAPIRateLimit = 10
-
-var freeRateLimiter = limitron.CreateLeanRateLimiterRps(FreePlanAPIRateLimit) // 1 rps
-var paidRateLimiter = limitron.CreateLeanRateLimiterRps(PaidPlanAPIRateLimit) // 10 rps
+var freeRateLimiter = limitron.BuildRateLimiter(1, 5 * time.Second)  // 1 request in 5 seconds - limit for FREE users
+var paidRateLimiter = limitron.BuildRateLimiterRps(10)               // 10 rps - limit for PAID users
 
 var userRateLimitMap = make(map[string]*uint64, 10)
 
-func getRateLimiterForUser(token string) limitron.LeanRateLimiter {
-  if rand.Intn(2) == 0 {
-    return freeRateLimiter
-  } else {
-    return paidRateLimiter
-  }
-}
-
 func apiHandler(w http.ResponseWriter, r *http.Request) {
-  apiToken := r.Header.Get("Authorization")
-  rateLimiter := getRateLimiterForUser(apiToken)
-
-  if rl, ok := userRateLimitMap[apiToken]; !ok {
-    rlval := rateLimiter.CreateNewRl()
-    userRateLimitMap[apiToken] = &rlval
-  } else {
-    if rateLimiter.Take1IfAllowed(rl) {
-      // hande API call normally
-    } else {
-      http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-      return
+    apiToken := r.Header.Get("Authorization")
+    user, err := getUserByApiToken(apiToken)
+    if err != nil {
+        w.WriteHeader(http.StatusUnauthorized)
+        return
     }
-  }
+
+    rateLimiter := &freeRateLimiter
+    if user.IsPaidUser {
+        rateLimiter = &paidRateLimiter
+    }
+
+    rl, ok := userRateLimitMap[apiToken]
+
+    if !ok {
+        rl := rateLimiter.New()
+        userRateLimitMap[apiToken] = rl
+    }
+
+    if waitMillis, taken := rateLimiter.Take1(rl); taken {
+        // hande API call normally
+    } else {
+        waitSeconds := time.Duration(waitMillis) + 500*time.Millisecond
+        if waitSeconds < time.Second {
+            waitSeconds = time.Second
+        }
+        w.Header().Set("Retry-After", strconv.Itoa(int(waitSeconds.Seconds())))
+        http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+        return
+    }
 }
 ```
 
@@ -134,7 +142,6 @@ CAS loop with configurable retries ensures safe concurrent mutation of shared li
 
 ## 6. Best Practices
 
-* Store `rl uint64` values in maps keyed by user/IP/key.
-* Use separate `LeanRateLimiter` instances for each configuration (they are stateless). E.g. create one instance of `LeanRateLimiter` for free plan users, and another `LeanRateLimiter` instance for paid plan users with higher rate.
-* Do not share `rl` values across identities.
-
+* Store `rl *uint64` values in maps keyed by user/IP/key.
+* Use separate `RateLimiter` instances for each configuration (they are stateless). E.g. create one instance of `RateLimiter` for free plan users, and another `RateLimiter` instance for paid plan users with higher rate.
+* Use of `rl *uint64` values makes sense only by reference (pointer)
