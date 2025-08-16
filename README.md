@@ -145,3 +145,15 @@ CAS loop with configurable retries ensures safe concurrent mutation of shared li
 * Store `rl *uint64` values in maps keyed by user/IP/key.
 * Use separate `RateLimiter` instances for each configuration (they are stateless). E.g. create one instance of `RateLimiter` for free plan users, and another `RateLimiter` instance for paid plan users with higher rate.
 * Use of `rl *uint64` values makes sense only by reference (pointer)
+
+## 7. Run tests
+
+```shell
+go test
+```
+
+With fuzzing:
+
+```shell
+go test -fuzz=Fuzz -fuzztime=30s -run=^$
+```
